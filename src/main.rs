@@ -12,7 +12,7 @@ fn main() {
     // Set up window
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut window = Window::new(
-        "Test - ESC to exit",
+        "Chip8 Emulator",
         WIDTH,
         HEIGHT,
         WindowOptions {
@@ -28,8 +28,6 @@ fn main() {
         .unwrap_or_else(|e| {
             panic!("{}", e);
         });
-    // Limit to 60 ticks per second
-    window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
 
     // Set up keyboard
     let device_state = DeviceState::new();
@@ -46,6 +44,7 @@ fn main() {
         // Emulate one cycle
         chip8.emulate_cycle();
 
+        // Draw screen (if needed)
         chip8.draw_to_buffer(&mut buffer);
 
         // Store key press state (Press and Release)
