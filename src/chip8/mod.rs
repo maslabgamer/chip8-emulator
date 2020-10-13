@@ -72,13 +72,15 @@ impl Chip8 {
         let opcode: u16 = (self.memory[self.program_counter as usize] as u16) << 8
             | (self.memory[self.program_counter as usize + 1] as u16);
 
+        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
+        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
+
         // Decode and Execute Opcode
         // Note: "NNN" denotes last three "nibbles" of two-byte opcode
         // "NN" denotes last two "nibbles" of two-byte opcode
         match opcode {
             // Calls machine code at address NNN
             0x0000..=0x0FFF => {
-                println!("Opcode = {:#X}", opcode);
                 match opcode {
                     0x00E0 => {
                         // clear the screen
@@ -108,7 +110,6 @@ impl Chip8 {
             }
             // Skip next instruction if VX equals NN
             0x3000..=0x3FFF => {
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
                 self.program_counter += match self.cpu_registers[v_x].0 == nn {
                     true => 4,
@@ -117,7 +118,6 @@ impl Chip8 {
             }
             // Skip next instruction if VX does NOT equals NN
             0x4000..=0x4FFF => {
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
                 self.program_counter += match self.cpu_registers[v_x].0 != nn {
                     true => 4,
@@ -128,8 +128,6 @@ impl Chip8 {
             0x5000..=0x5FFF => {
                 match opcode & 0x000F {
                     0x0000 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.program_counter += match self.cpu_registers[v_x] == self.cpu_registers[v_y] {
                             true => 4,
                             false => 2
@@ -140,13 +138,11 @@ impl Chip8 {
             }
             // Sets VX to NN
             0x6000..=0x6FFF => {
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                 self.cpu_registers[v_x] = Wrapping((opcode & 0x00FF) as u8);
                 self.program_counter += 2;
             }
             // Adds NN to VX (carry flag not updated)
             0x7000..=0x7FFF => {
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                 self.cpu_registers[v_x] += Wrapping((opcode & 0x00FF) as u8);
                 self.program_counter += 2;
             }
@@ -155,36 +151,26 @@ impl Chip8 {
                 match opcode & 0x000F {
                     // 0x8XY0 - Sets VX to the value of VY
                     0x0000 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.cpu_registers[v_x] = self.cpu_registers[v_y];
                         self.program_counter += 2;
                     },
                     // 0x8XY1 - Sets VX to bitwise OR operation of VX and VY
                     0x0001 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.cpu_registers[v_x] |= self.cpu_registers[v_y];
                         self.program_counter += 2;
                     }
                     // 0x8XY2 - Sets VX to bitwise AND operation of VX and VY
                     0x0002 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.cpu_registers[v_x] &= self.cpu_registers[v_y];
                         self.program_counter += 2;
                     },
                     // 0x8XY3 - Sets VX to bitwise XOR operation of VX and VY
                     0x0003 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.cpu_registers[v_x] ^= self.cpu_registers[v_y];
                         self.program_counter += 2;
                     },
                     // 0x8XY4 - Adds value of VY to VX
                     0x0004 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                         self.cpu_registers[0xF] = Wrapping(match self.cpu_registers[v_x].0 > (0xFF - self.cpu_registers[v_y].0) {
                             true => 1, // carry
                             false => 0
@@ -195,9 +181,6 @@ impl Chip8 {
                     },
                     // 0x8XY5 - VY is subtracted from VX. VF set to 0 when there's borrow, 1, when there isn't
                     0x0005 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
-
                         self.cpu_registers[0xF] = Wrapping(match self.cpu_registers[v_y] > self.cpu_registers[v_x] {
                             true => 0x00, // Borrow occurred
                             false => 0x01
@@ -215,18 +198,13 @@ impl Chip8 {
                 self.program_counter += 2;
             }
             0xC000..=0xCFFF => {
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
-
                 self.cpu_registers[v_x] = Wrapping(rand::thread_rng().gen_range(0x00, 0xFF) & nn);
-
                 self.program_counter += 2;
             }
             // Draw sprite at coordinate (VX, VY) 8 pixels wide and N pixels high where N is last nibble
             0xD000..=0xDFFF => {
                 // Fetch position and height of sprite
-                let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                let v_y: usize = ((opcode & 0x00F0) >> 4) as usize;
                 let x = self.cpu_registers[v_x].0 as u16;
                 let y = self.cpu_registers[v_y].0 as u16;
                 // Pixel value
@@ -237,12 +215,11 @@ impl Chip8 {
                 for y_line in 0..height {
                     // fetch pixel value from memory starting at location I
                     let pixel = self.memory[(self.index_register + y_line) as usize];
-
                     // Sprite is always 8 wide, loop over 8 bits to draw one row
                     for x_line in 0..8 {
                         // Check if current pixel is set to 1 (using >> x_line to scan through byte)
                         if (pixel & (0x80 >> x_line)) != 0 {
-                            let gfx_idx: usize = (x + x_line + ((y + y_line) * 64)) as usize;
+                            let gfx_idx: usize = ((x + x_line + ((y + y_line) * 64)) as usize) % self.gfx.len();
 
                             // If current pixel is 1 we need to set the VF register
                             if self.gfx[gfx_idx] == 1 {
@@ -265,7 +242,6 @@ impl Chip8 {
                 match opcode & 0x00FF {
                     // EX9E - Skip next instruction if key stored in VX is pressed
                     0x009E => {
-                        let v_x = ((opcode & 0x0F00) >> 8) as usize;
                         self.program_counter += match self.keys[v_x] == 1 {
                             true => 4,
                             false => 2,
@@ -273,9 +249,7 @@ impl Chip8 {
                     }
                     // EXA1 - Skip next instruction if key stored in VX is NOT pressed
                     0x00A1 => {
-                        let v_x = ((opcode & 0x0F00) >> 8) as usize;
                         let key = self.cpu_registers[v_x].0 as usize;
-
                         self.program_counter += match self.keys[key] != 1 {
                             true => 4,
                             false => 2,
@@ -288,45 +262,39 @@ impl Chip8 {
                 match opcode & 0xF0FF {
                     // Store current value of delay timer in register VX
                     0xF007 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                         self.cpu_registers[v_x] = Wrapping(self.delay_timer);
                         self.program_counter += 2;
-                    }
+                    },
                     // Set delay timer to value of register VX
                     0xF015 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                         self.delay_timer = self.cpu_registers[v_x].0;
                         self.program_counter += 2;
                     },
                     // Set sound timer to VX
                     0xF018 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                         self.sound_timer = self.cpu_registers[v_x].0;
+                        self.program_counter += 2;
+                    },
+                    // Sets I to location of the sprite for character in VX
+                    0xF029 => {
+                        self.index_register = (self.cpu_registers[v_x].0 as u16) * 5;
                         self.program_counter += 2;
                     },
                     // Store binary-coded decimal representation of VX at addresses I, I+1, and I+2
                     0xF033 => { // opcode 0xFX33
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
                         self.memory[self.index_register as usize] = self.cpu_registers[v_x].0 / 100;
-                        self.memory[self.index_register as usize + 1] = (self.cpu_registers[v_x].0 / 10) % 10;
-                        self.memory[self.index_register as usize + 2] = (self.cpu_registers[v_x].0 % 100) % 10;
-
+                        self.memory[self.index_register as usize + 1] = (self.cpu_registers[v_x].0 / 100) % 10;
+                        self.memory[self.index_register as usize + 2] = self.cpu_registers[v_x].0 % 10;
                         self.program_counter += 2;
-                    }
-                    // Sets I to location of the sprite for character in VX
-                    0xF029 => {
-                        self.index_register = (opcode & 0x0F00) >> 8;
-                        self.program_counter += 2;
-                    }
+                    },
                     // Fills V0 to VX (including VX) with values from memory starting at address I
                     0xF065 => {
-                        let v_x: usize = ((opcode & 0x0F00) >> 8) as usize;
-                        for i in 0..=v_x {
+                        println!("Loading V0 to vx ({})", v_x);
+                        for i in 0..v_x + 1 {
                             self.cpu_registers[i] = Wrapping(self.memory[self.index_register as usize + i]);
                         }
-                        self.index_register += v_x as u16 + 1;
                         self.program_counter += 2;
-                    }
+                    },
                     _ => panic!("Unknown opcode: {:#X}", opcode),
                 }
             }
