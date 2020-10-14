@@ -59,7 +59,7 @@ impl Chip8 {
             gfx: [0; 64 * 32],
         };
 
-        // Load fontset here
+        // Load fontset
         for i in 0..80 {
             new_chip8.memory[i] = CHIP8_FONTSET[i];
         }
@@ -193,8 +193,7 @@ impl Chip8 {
             }
             // Sets index register to value NNN
             0xA000..=0xAFFF => {
-                let value = opcode & OPCODE_VALUE_MASK;
-                self.index_register = value;
+                self.index_register = opcode & OPCODE_VALUE_MASK;
                 self.program_counter += 2;
             }
             0xC000..=0xCFFF => {
@@ -211,7 +210,7 @@ impl Chip8 {
                 let height: u16 = opcode & 0x000F;
 
                 // Reset register VF
-                self.cpu_registers[0xF] = Wrapping(0);
+                self.cpu_registers[0x0] = Wrapping(0);
                 for y_line in 0..height {
                     // fetch pixel value from memory starting at location I
                     let pixel = self.memory[(self.index_register + y_line) as usize];
@@ -223,7 +222,7 @@ impl Chip8 {
 
                             // If current pixel is 1 we need to set the VF register
                             if self.gfx[gfx_idx] == 1 {
-                                self.cpu_registers[0xF] = Wrapping(1);
+                                self.cpu_registers[0x0F] = Wrapping(1);
                             }
                             // Set pixel value using XOR
                             self.gfx[gfx_idx] ^= 1;
@@ -283,13 +282,12 @@ impl Chip8 {
                     // Store binary-coded decimal representation of VX at addresses I, I+1, and I+2
                     0xF033 => { // opcode 0xFX33
                         self.memory[self.index_register as usize] = self.cpu_registers[v_x].0 / 100;
-                        self.memory[self.index_register as usize + 1] = (self.cpu_registers[v_x].0 / 100) % 10;
-                        self.memory[self.index_register as usize + 2] = self.cpu_registers[v_x].0 % 10;
+                        self.memory[self.index_register as usize + 1] = (self.cpu_registers[v_x].0 / 10) % 10;
+                        self.memory[self.index_register as usize + 2] = (self.cpu_registers[v_x].0 % 100) % 10;
                         self.program_counter += 2;
                     },
                     // Fills V0 to VX (including VX) with values from memory starting at address I
                     0xF065 => {
-                        println!("Loading V0 to vx ({})", v_x);
                         for i in 0..v_x + 1 {
                             self.cpu_registers[i] = Wrapping(self.memory[self.index_register as usize + i]);
                         }
