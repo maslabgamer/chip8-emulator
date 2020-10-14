@@ -44,17 +44,18 @@ fn main() {
         // Emulate one cycle
         chip8.emulate_cycle();
 
-        // Draw screen (if needed)
-        chip8.draw_to_buffer(&mut buffer);
-
         // Store key press state (Press and Release)
         chip8.set_keys(device_state.get_keys());
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+
+        // Draw screen if necessary
+        if chip8.draw_to_buffer(&mut buffer) {
+            window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+        }
     };
 }
 
 fn load_program() -> Vec<u8> {
-    let program = fs::read("roms/pong.rom");
+    let program = fs::read("roms/test_opcode.ch8");
     match program {
         Ok(program_loaded) => program_loaded,
         Err(error) => panic!("Could not load program!\n{}", error)

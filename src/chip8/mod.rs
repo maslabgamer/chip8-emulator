@@ -1,13 +1,14 @@
 use std::num::Wrapping;
 use device_query::Keycode;
 use rand::Rng;
+use std::time::Instant;
 
 pub(crate) struct Chip8 {
     memory: [u8; 4096],
     // V
     cpu_registers: [Wrapping<u8>; 16],
     // I
-    index_register: u16,
+    index_register: Wrapping<u16>,
     // Increment by 2 as each instruction is 2 bytes long
     // True if we do not call subroutine or jump to a certain address in memory
     // Will increment by four if next opcode should be skipped
@@ -19,6 +20,7 @@ pub(crate) struct Chip8 {
     stack_pointer: u16,
     keys: [u8; 16],
     draw_flag: bool,
+    internal_clock: Instant,
 }
 
 // Mask used to remove operator from front of opcode
@@ -48,7 +50,7 @@ impl Chip8 {
         let mut new_chip8 = Chip8 {
             memory: [0; 4096],
             cpu_registers: [Wrapping(0); 16],
-            index_register: 0,
+            index_register: Wrapping(0),
             program_counter: 0x200,
             delay_timer: 0,
             sound_timer: 0,
@@ -57,10 +59,11 @@ impl Chip8 {
             keys: [0; 16],
             draw_flag: false,
             gfx: [0; 64 * 32],
+            internal_clock: Instant::now(),
         };
 
         // Load fontset
-        for i in 0..80 {
+        for i in 0..CHIP8_FONTSET.len() {
             new_chip8.memory[i] = CHIP8_FONTSET[i];
         }
 
@@ -132,7 +135,7 @@ impl Chip8 {
                             true => 4,
                             false => 2
                         };
-                    }
+                    },
                     _ => panic!("Unknown opcode: {:#X}", opcode),
                 }
             }
@@ -181,26 +184,63 @@ impl Chip8 {
                     },
                     // 0x8XY5 - VY is subtracted from VX. VF set to 0 when there's borrow, 1, when there isn't
                     0x0005 => {
-                        self.cpu_registers[0xF] = Wrapping(match self.cpu_registers[v_y] > self.cpu_registers[v_x] {
-                            true => 0x00, // Borrow occurred
-                            false => 0x01
+                        self.cpu_registers[0xF] = Wrapping(match self.cpu_registers[v_x] > self.cpu_registers[v_y] {
+                            true => 0x01,
+                            false => 0x00 // Borrow occurred
                         });
                         self.cpu_registers[v_x] -= self.cpu_registers[v_y];
                         self.program_counter += 2;
                     },
+                    // 0x8XY6 - Store least significant bit of VS in VF and then shifts VX to the right by 1
+                    0x0006 => {
+                        self.cpu_registers[0x0F] = Wrapping(self.cpu_registers[v_x].0 & 1);
+                        self.cpu_registers[v_x] >>= 1;
+                        self.program_counter += 2;
+                    },
+                    // 0x08XY7 - Sets VX to VY minus VX. VF set to 0 when there's a borrow and 1 when there isn't
+                    0x0007 => {
+                        self.cpu_registers[0x0f] = Wrapping(match self.cpu_registers[v_y] > self.cpu_registers[v_x] {
+                            true => 1,
+                            false => 0
+                        });
+                        self.cpu_registers[v_x] = self.cpu_registers[v_y] - self.cpu_registers[v_x];
+                        self.program_counter += 2;
+                    },
+                    // 0x8XYE - Store most significant bit of VX in VF and then shifts VX to the left by 1
+                    0x000E => {
+                        self.cpu_registers[0x0F] = Wrapping((self.cpu_registers[v_x].0 & 0b10000000) >> 7);
+                        self.cpu_registers[v_x] <<= 1;
+                        self.program_counter += 2;
+                    },
                     _ => panic!("Unknown opcode: {:#X}", opcode),
                 }
-            }
+            },
+            // Skip next instruction if VX doesn't equal VY
+            0x9000..=0x9FFF => {
+                match opcode & 0xF00F {
+                    0x9000 => {
+                        self.program_counter += match self.cpu_registers[v_x] != self.cpu_registers[v_y] {
+                            true => 4,
+                            false => 2,
+                        };
+                    },
+                    _ => panic!("Unknown opcode: {:#X}", opcode),
+                }
+            },
             // Sets index register to value NNN
             0xA000..=0xAFFF => {
-                self.index_register = opcode & OPCODE_VALUE_MASK;
+                self.index_register = Wrapping(opcode & OPCODE_VALUE_MASK);
                 self.program_counter += 2;
+            },
+            // Jump to address NNN plus V0
+            0xB000..=0xBFFF => {
+                self.program_counter = (opcode & OPCODE_VALUE_MASK) + self.cpu_registers[0x0].0 as u16;
             }
             0xC000..=0xCFFF => {
                 let nn = (opcode & 0x00FF) as u8;
-                self.cpu_registers[v_x] = Wrapping(rand::thread_rng().gen_range(0x00, 0xFF) & nn);
+                self.cpu_registers[v_x] = Wrapping(rand::thread_rng().gen::<u8>() & nn);
                 self.program_counter += 2;
-            }
+            },
             // Draw sprite at coordinate (VX, VY) 8 pixels wide and N pixels high where N is last nibble
             0xD000..=0xDFFF => {
                 // Fetch position and height of sprite
@@ -208,12 +248,14 @@ impl Chip8 {
                 let y = self.cpu_registers[v_y].0 as u16;
                 // Pixel value
                 let height: u16 = opcode & 0x000F;
+                println!("opcode = {:#X}", opcode);
+                println!("(v_x, v_y) = ({}, {})\n(x, y) = ({}, {})", v_x, v_y, x, y);
 
                 // Reset register VF
-                self.cpu_registers[0x0] = Wrapping(0);
+                self.cpu_registers[0x0F] = Wrapping(0);
                 for y_line in 0..height {
                     // fetch pixel value from memory starting at location I
-                    let pixel = self.memory[(self.index_register + y_line) as usize];
+                    let pixel = self.memory[(self.index_register.0 + y_line) as usize];
                     // Sprite is always 8 wide, loop over 8 bits to draw one row
                     for x_line in 0..8 {
                         // Check if current pixel is set to 1 (using >> x_line to scan through byte)
@@ -274,22 +316,34 @@ impl Chip8 {
                         self.sound_timer = self.cpu_registers[v_x].0;
                         self.program_counter += 2;
                     },
+                    // 0xFX1E - Adds VX to I. VF not affected
+                    0xF01E => {
+                        self.index_register += Wrapping(self.cpu_registers[v_x].0 as u16);
+                        self.program_counter += 2;
+                    },
                     // Sets I to location of the sprite for character in VX
                     0xF029 => {
-                        self.index_register = (self.cpu_registers[v_x].0 as u16) * 5;
+                        self.index_register = Wrapping((self.cpu_registers[v_x].0 as u16) * 5);
                         self.program_counter += 2;
                     },
                     // Store binary-coded decimal representation of VX at addresses I, I+1, and I+2
                     0xF033 => { // opcode 0xFX33
-                        self.memory[self.index_register as usize] = self.cpu_registers[v_x].0 / 100;
-                        self.memory[self.index_register as usize + 1] = (self.cpu_registers[v_x].0 / 10) % 10;
-                        self.memory[self.index_register as usize + 2] = (self.cpu_registers[v_x].0 % 100) % 10;
+                        self.memory[self.index_register.0 as usize] = self.cpu_registers[v_x].0 / 100;
+                        self.memory[self.index_register.0 as usize + 1] = (self.cpu_registers[v_x].0 / 10) % 10;
+                        self.memory[self.index_register.0 as usize + 2] = (self.cpu_registers[v_x].0 % 100) % 10;
+                        self.program_counter += 2;
+                    },
+                    // Stores V0 to VX in memory starting at address I
+                    0xF055 => {
+                        for i in 0..v_x + 1 {
+                            self.memory[self.index_register.0 as usize + i] = self.cpu_registers[i].0;
+                        }
                         self.program_counter += 2;
                     },
                     // Fills V0 to VX (including VX) with values from memory starting at address I
                     0xF065 => {
                         for i in 0..v_x + 1 {
-                            self.cpu_registers[i] = Wrapping(self.memory[self.index_register as usize + i]);
+                            self.cpu_registers[i] = Wrapping(self.memory[self.index_register.0 as usize + i]);
                         }
                         self.program_counter += 2;
                     },
@@ -297,6 +351,11 @@ impl Chip8 {
                 }
             }
             _ => panic!("Unknown opcode: {:#X}", opcode),
+        }
+
+        if self.internal_clock.elapsed().as_secs() >= 1 {
+            println!("cpu_registers = {:?}", self.cpu_registers);
+            self.internal_clock = Instant::now();
         }
 
         // Update timers
@@ -311,7 +370,8 @@ impl Chip8 {
         }
     }
 
-    pub fn draw_to_buffer(&mut self, buffer: &mut Vec<u32>) {
+    pub fn draw_to_buffer(&mut self, buffer: &mut Vec<u32>) -> bool {
+        let mut should_draw = false;
         if self.draw_flag {
             for pixel_idx in 0..buffer.len() {
                 buffer[pixel_idx] = if self.gfx[pixel_idx] == 0 {
@@ -320,8 +380,10 @@ impl Chip8 {
                     0x0FFF
                 };
             }
+            should_draw = true;
         }
         self.draw_flag = false;
+        should_draw
     }
 
     pub fn set_keys(&mut self, keys: Vec<Keycode>) {
