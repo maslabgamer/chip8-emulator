@@ -55,7 +55,7 @@ fn main() {
 }
 
 fn load_program() -> Vec<u8> {
-    let program = fs::read("roms/test_opcode.ch8");
+    let program = fs::read("roms/pong.rom");
     match program {
         Ok(program_loaded) => program_loaded,
         Err(error) => panic!("Could not load program!\n{}", error)
